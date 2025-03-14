@@ -203,11 +203,10 @@ void writer_function(std::shared_ptr<ResourceManager<std::string>> manager,
     // Create new resource and update
     auto new_value = std::make_unique<std::string>("Updated resource " +
                                                    std::to_string(counter));
-    auto [old_value, epoch] = manager->update(std::move(new_value));
+    {
+      auto [old_value, epoch] = manager->update(std::move(new_value));
 
-    // Now wait until we can safely free the old value:
-    while (!manager->can_reclaim(epoch)) {
-      std::this_thread::yield();
+      manager->wait_reclaim(epoch);
     }
     update_counter.fetch_add(1, std::memory_order_relaxed);
 

@@ -43,17 +43,19 @@ private:
 
 public:
   // Check if all active readers are using newer epochs than the given one
-  bool can_reclaim(uint64_t epoch) {
+  void wait_reclaim(uint64_t epoch) {
     for (const auto &slot : epoch_slots) {
-      uint64_t slot_epoch = slot.epoch.load(std::memory_order_seq_cst);
 
       // If slot is reading (non-zero) and using epoch <= target, we can't
       // reclaim
-      if (slot_epoch != 0 && slot_epoch <= epoch) {
-        return false;
+      while (true) {
+        uint64_t slot_epoch = slot.epoch.load(std::memory_order_relaxed);
+        if (slot_epoch == 0 || slot_epoch > epoch) {
+          break;
+        }
+        slot.epoch.wait(slot_epoch, std::memory_order_relaxed);
       }
     }
-    return true;
   }
 
   // Constructor with initial resource
@@ -66,10 +68,7 @@ public:
   // Destructor
   ~ResourceManager() {
     auto [current, epoch] = update(nullptr);
-    while (!can_reclaim(epoch)) {
-      std::this_thread::yield();
-    }
-    current.reset();
+    wait_reclaim(epoch);
   }
 
   // Delete copy/move constructors and assignment operators
@@ -92,12 +91,19 @@ public:
       // Try to announce reading at this epoch using compare_exchange
       uint64_t expected = 0; // expected: 0 (not in use)
       if (epoch_slots[slot].epoch.compare_exchange_strong(
-              expected, current_epoch, std::memory_order_seq_cst,
-              std::memory_order_seq_cst)) {
+              expected, current_epoch, std::memory_order_acquire,
+              std::memory_order_relaxed)) {
+        // We use acquire here, since we want to avoid that the subsequent
+        // load of the resource pointer is not reordered before the store
+        // to the epoch_slot!
         // Successfully claimed the slot
         // Read resource pointer and execute reader function
         T *resource_ptr = current_resource.load(std::memory_order_acquire);
+        // We use memory_order_acquire here to synchronize with the writer's
+        // store to be able to see stuff to which the pointer points.
 
+        // Note that for the case of a nullptr, the result type should be
+        // default constructible!
         decltype(f(std::declval<const T &>())) result{};
 
         // Execute reader function
@@ -106,16 +112,14 @@ public:
         }
 
         // Mark slot as "not reading" with a simple write
-        epoch_slots[slot].epoch.store(0, std::memory_order_release);
+        epoch_slots[slot].epoch.store(0, std::memory_order_relaxed);
 
         return result;
       }
 
       // Slot is in use, try the next one:
       slot += 1;
-      if (slot >= EPOCH_SLOTS) {
-        slot = 0;
-      }
+      slot = slot < EPOCH_SLOTS ? slot : slot - EPOCH_SLOTS;
       // Continue the loop with the new slot
     }
   }
@@ -123,19 +127,26 @@ public:
   // Writer API: Update the resource
   std::pair<std::unique_ptr<T>, uint64_t>
   update(std::unique_ptr<T> new_resource) {
-    std::lock_guard<std::mutex> lock(writer_mutex, std::adopt_lock);
+    std::lock_guard<std::mutex> lock(writer_mutex);
 
     // Extract raw pointer from unique_ptr
     T *new_ptr = new_resource.release();
 
-    // Swap pointers with SeqCst ordering for maximum visibility
-    T *old_ptr = current_resource.exchange(new_ptr, std::memory_order_seq_cst);
+    // Swap pointers:
+    T *old_ptr = current_resource.exchange(new_ptr, std::memory_order_release);
+    // This release synchronizes with the acquire in the read method.
 
     // Advance global epoch with release to ensure all threads see the new epoch
     // and new current_resource:
     uint64_t retire_epoch =
         global_epoch.fetch_add(1, std::memory_order_release);
 
+    // We need that everybody who still sees the old value also uses the old
+    // epoch! Therefore it is crucial that we first write the new pointer here
+    // before increasing the epoch. In the read method, we first load the epoch
+    // and then load the pointer. Therefore, it is possible (and tolerable)
+    // that a reader uses the new pointer value together with the old epoch,
+    // but no harm results from this!
     return std::pair(std::unique_ptr<T>(old_ptr), retire_epoch);
   }
 };

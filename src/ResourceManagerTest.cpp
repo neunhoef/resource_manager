@@ -39,13 +39,15 @@ void writer_thread(std::shared_ptr<ResourceManager<std::string>> manager,
   for (int i = 0; i < num_updates; ++i) {
     auto new_value =
         std::make_unique<std::string>("Updated resource " + std::to_string(i));
-    auto [old_value, epoch] = manager->update(std::move(new_value));
-    while (!manager->can_reclaim(epoch)) {
-      std::this_thread::yield();
+    {
+      auto [old_value, epoch] = manager->update(std::move(new_value));
+      manager->wait_reclaim(epoch);
+      // old_value freed here
     }
 
     completed_updates.fetch_add(1, std::memory_order_relaxed);
-    std::cout << "Updated to: " << "Updated resource " << i << std::endl;
+    std::cout << "Updated to: "
+              << "Updated resource " << i << std::endl;
 
     // Wait between updates
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
