@@ -49,11 +49,15 @@ public:
       // If slot is reading (non-zero) and using epoch <= target, we can't
       // reclaim
       while (true) {
-        uint64_t slot_epoch = slot.epoch.load(std::memory_order_relaxed);
+        uint64_t slot_epoch = slot.epoch.load(std::memory_order_acquire);
         if (slot_epoch == 0 || slot_epoch > epoch) {
           break;
         }
-        slot.epoch.wait(slot_epoch, std::memory_order_relaxed);
+        slot.epoch.wait(slot_epoch, std::memory_order_acquire);
+        // The memory_order_acquire here synchronizes with a reader
+        // freeing a slot and ensures that any write the reader might have
+        // done through internal mutabililty during a read are ordered
+        // before the synchronization point.
       }
     }
   }
@@ -112,7 +116,11 @@ public:
         }
 
         // Mark slot as "not reading" with a simple write
-        epoch_slots[slot].epoch.store(0, std::memory_order_relaxed);
+        epoch_slots[slot].epoch.store(0, std::memory_order_release);
+        // This synchronizes with the memory_order_acquire in wait_reclaim,
+        // to ensure that any writes we might have done during the read method
+        // (internal mutability!) have happened before we actually reclaim
+        // the memory!
 
         return result;
       }
