@@ -18,13 +18,15 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 # Define targets
 add_executable(resource_manager_test src/ResourceManagerTest.cpp)
 add_executable(resource_manager_benchmark src/benchmark.cpp)
+add_executable(bounded_list_benchmark src/bench_bounded.cpp)
 
 # Set compiler options for all targets
 set_compiler_options(resource_manager_test)
 set_compiler_options(resource_manager_benchmark)
+set_compiler_options(bounded_list_benchmark)
 
 # Install targets
-install(TARGETS resource_manager_test resource_manager_benchmark
+install(TARGETS resource_manager_test resource_manager_benchmark bounded_list_benchmark
         RUNTIME DESTINATION bin)
 
 # Enable testing
@@ -37,4 +39,12 @@ add_custom_target(benchmark
     DEPENDS resource_manager_benchmark
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Running resource manager benchmarks"
+)
+
+# Add a custom target for running bounded list benchmarks
+add_custom_target(bench_bounded
+    COMMAND bounded_list_benchmark
+    DEPENDS bounded_list_benchmark
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Running bounded list benchmarks"
 ) 

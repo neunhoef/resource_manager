@@ -6,6 +6,7 @@
 #include <optional>
 #include <random>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 // Alignment for cache line to prevent false sharing
@@ -49,11 +50,22 @@ public:
       // If slot is reading (non-zero) and using epoch <= target, we can't
       // reclaim
       while (true) {
-        uint64_t slot_epoch = slot.epoch.load(std::memory_order_relaxed);
+        uint64_t slot_epoch = slot.epoch.load(std::memory_order_acquire);
+        // This synchronizes with the memory_order_release in the `read()`
+        // method. We must be sure that no writes are reordered after
+        // the release or reads reordered before this acquire here to
+        // guarantee safe reclamation.
         if (slot_epoch == 0 || slot_epoch > epoch) {
           break;
         }
-        slot.epoch.wait(slot_epoch, std::memory_order_relaxed);
+// CPU hint for spin-waiting
+#if defined(__x86_64__) || defined(_M_X64)
+        _mm_pause(); // x86 pause instruction
+#elif defined(__arm__) || defined(__aarch64__)
+        __asm__ volatile("yield" ::: "memory"); // ARM yield instruction
+#else
+        std::this_thread::yield(); // Fallback for other architectures
+#endif
       }
     }
   }
@@ -102,19 +114,37 @@ public:
         // We use memory_order_acquire here to synchronize with the writer's
         // store to be able to see stuff to which the pointer points.
 
-        // Note that for the case of a nullptr, the result type should be
-        // default constructible!
-        decltype(f(std::declval<const T &>())) result{};
+        using ReturnType = decltype(f(std::declval<const T &>()));
 
-        // Execute reader function
-        if (resource_ptr != nullptr) {
-          result = f(*resource_ptr);
+        if constexpr (std::is_void_v<ReturnType>) {
+          // Handle void return type
+          if (resource_ptr != nullptr) {
+            f(*resource_ptr);
+          }
+
+          // Mark slot as "not reading" with a simple write
+          epoch_slots[slot].epoch.store(0, std::memory_order_release);
+          // This synchronizes with the `wait` or the `load` in the
+          // `wait_reclaim()` method.
+
+          return;
+        } else {
+          // Note that for the case of a nullptr, the result type should be
+          // default constructible!
+          ReturnType result{};
+
+          // Execute reader function
+          if (resource_ptr != nullptr) {
+            result = f(*resource_ptr);
+          }
+
+          // Mark slot as "not reading" with a simple write
+          epoch_slots[slot].epoch.store(0, std::memory_order_release);
+          // This synchronizes with the `wait` or the `load` in the
+          // `wait_reclaim()` method.
+
+          return result;
         }
-
-        // Mark slot as "not reading" with a simple write
-        epoch_slots[slot].epoch.store(0, std::memory_order_relaxed);
-
-        return result;
       }
 
       // Slot is in use, try the next one:
