@@ -3,6 +3,12 @@
 A C++20 implementation of a lock-free resource manager with epoch-based reclamation.
 Includes a benchmark program. This was created with the help of claude.ai.
 
+Furthermore, there are two BoundedList implemenations for a mostly-lock-free
+bounded list implementation, which only allows prepend operations but can
+take a snapshot.
+
+Benchmarks are included.
+
 ## Features
 
 - Thread-safe resource management
@@ -47,6 +53,12 @@ cmake --build .
 
 # For all options
 ./resource_manager_benchmark --help
+
+# Bounded list benchmark:
+./bounded_list_benchmark --writers 16 --duration 10
+
+# For all options
+./bounded_list_benchmark --help
 ```
 
 ## Build Options
