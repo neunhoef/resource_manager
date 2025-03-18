@@ -53,7 +53,7 @@ private:
       std::mt19937 gen(rd());
       std::uniform_int_distribution<size_t> dist(0, EPOCH_SLOTS - 1);
       thread_slot_index = dist(gen);
-      std::cout << "Using slot " << thread_slot_index.value();
+      std::cout << "Using slot " << thread_slot_index.value() << "\n";
     }
     return *thread_slot_index;
   }

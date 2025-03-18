@@ -20,24 +20,20 @@ namespace arangodb {
 // Simple payload class with two strings and a memoryUsage method
 class Payload {
 private:
-  std::string _str1;
-  std::string _str2;
+  int64_t a;
+  int64_t b;
 
 public:
-  Payload(std::string str1, std::string str2)
-      : _str1(std::move(str1)), _str2(std::move(str2)) {}
+  Payload(uint64_t a, uint64_t b) : a(a), b(b) {}
 
   // Copy constructor
   Payload(const Payload &other) = default;
 
   // Move constructor
-  Payload(Payload &&other) noexcept
-      : _str1(std::move(other._str1)), _str2(std::move(other._str2)) {}
+  Payload(Payload &&other) noexcept : a(other.a), b(other.b) {}
 
   // Memory usage estimation
-  size_t memoryUsage() const {
-    return sizeof(Payload) + _str1.capacity() + _str2.capacity();
-  }
+  size_t memoryUsage() const { return sizeof(Payload); }
 };
 
 // Command line argument parser
@@ -109,7 +105,7 @@ public:
       : stats_mutex(std::make_unique<std::mutex>()), thread_id(id),
         implementation_name(impl_name) {
     // Pre-allocate space to avoid reallocations
-    latencies.reserve(1000000);
+    latencies.reserve(20000000);
   }
 
   // Delete copy constructor
@@ -227,11 +223,7 @@ void writer_function(std::shared_ptr<ListType> list, WriterStats &stats,
   std::string prefix = "Thread-" + std::to_string(thread_id) + "-Item-";
 
   while (!should_stop.load(std::memory_order_relaxed)) {
-    std::string item_id = std::to_string(counter++);
-    std::string data1 = prefix + item_id;
-    std::string data2 = "Data-" + item_id;
-
-    Payload payload(data1, data2);
+    Payload payload(counter, 2 * counter);
 
     // Measure prepend latency
     auto start = std::chrono::high_resolution_clock::now();
