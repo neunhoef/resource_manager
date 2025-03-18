@@ -8,6 +8,7 @@
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <jemalloc/jemalloc.h>
 #include <mutex>
 #include <numeric>
 #include <string>
@@ -18,19 +19,19 @@ namespace arangodb {
 
 // Simple payload class with two strings and a memoryUsage method
 class Payload {
- private:
+private:
   std::string _str1;
   std::string _str2;
 
- public:
+public:
   Payload(std::string str1, std::string str2)
       : _str1(std::move(str1)), _str2(std::move(str2)) {}
 
   // Copy constructor
-  Payload(const Payload& other) = default;
+  Payload(const Payload &other) = default;
 
   // Move constructor
-  Payload(Payload&& other) noexcept
+  Payload(Payload &&other) noexcept
       : _str1(std::move(other._str1)), _str2(std::move(other._str2)) {}
 
   // Memory usage estimation
@@ -43,12 +44,12 @@ class Payload {
 struct BenchmarkConfig {
   int writer_threads = 4;
   int duration_seconds = 10;
-  size_t memory_threshold = 1024 * 1024;  // 1MB
+  size_t memory_threshold = 1024 * 1024; // 1MB
   size_t max_history = 10;
   bool csv_output = false;
   std::string output_file = "bounded_list_benchmark.csv";
 
-  static BenchmarkConfig parse_args(int argc, char* argv[]) {
+  static BenchmarkConfig parse_args(int argc, char *argv[]) {
     BenchmarkConfig config;
 
     for (int i = 1; i < argc; ++i) {
@@ -95,38 +96,35 @@ struct BenchmarkConfig {
 
 // Statistics for a writer thread
 class WriterStats {
- private:
-  std::vector<double> latencies;  // in nanoseconds
+private:
+  std::vector<double> latencies; // in nanoseconds
   std::unique_ptr<std::mutex> stats_mutex;
   int thread_id;
   uint64_t total_writes = 0;
   double duration_secs = 0.0;
   std::string implementation_name;
 
- public:
-  explicit WriterStats(int id, const std::string& impl_name = "")
-      : stats_mutex(std::make_unique<std::mutex>()),
-        thread_id(id), 
+public:
+  explicit WriterStats(int id, const std::string &impl_name = "")
+      : stats_mutex(std::make_unique<std::mutex>()), thread_id(id),
         implementation_name(impl_name) {
     // Pre-allocate space to avoid reallocations
     latencies.reserve(1000000);
   }
 
   // Delete copy constructor
-  WriterStats(const WriterStats&) = delete;
-  WriterStats& operator=(const WriterStats&) = delete;
+  WriterStats(const WriterStats &) = delete;
+  WriterStats &operator=(const WriterStats &) = delete;
 
   // Move constructor
-  WriterStats(WriterStats&& other) noexcept
+  WriterStats(WriterStats &&other) noexcept
       : latencies(std::move(other.latencies)),
-        stats_mutex(std::move(other.stats_mutex)),
-        thread_id(other.thread_id),
-        total_writes(other.total_writes),
-        duration_secs(other.duration_secs),
+        stats_mutex(std::move(other.stats_mutex)), thread_id(other.thread_id),
+        total_writes(other.total_writes), duration_secs(other.duration_secs),
         implementation_name(std::move(other.implementation_name)) {}
 
   // Move assignment
-  WriterStats& operator=(WriterStats&& other) noexcept {
+  WriterStats &operator=(WriterStats &&other) noexcept {
     if (this != &other) {
       latencies = std::move(other.latencies);
       stats_mutex = std::move(other.stats_mutex);
@@ -148,7 +146,7 @@ class WriterStats {
 
   int get_thread_id() const { return thread_id; }
 
-  const std::string& get_implementation_name() const {
+  const std::string &get_implementation_name() const {
     return implementation_name;
   }
 
@@ -159,16 +157,19 @@ class WriterStats {
   }
 
   double get_average_latency() const {
-    if (latencies.empty()) return 0.0;
+    if (latencies.empty())
+      return 0.0;
     return std::accumulate(latencies.begin(), latencies.end(), 0.0) /
            latencies.size();
   }
 
   double get_percentile(double percentile) const {
-    if (latencies.empty()) return 0.0;
+    if (latencies.empty())
+      return 0.0;
 
     size_t idx = static_cast<size_t>(percentile * latencies.size());
-    if (idx >= latencies.size()) idx = latencies.size() - 1;
+    if (idx >= latencies.size())
+      idx = latencies.size() - 1;
 
     return latencies[idx];
   }
@@ -220,8 +221,8 @@ class WriterStats {
 
 // Writer function for BoundedList
 template <typename ListType>
-void writer_function(std::shared_ptr<ListType> list, WriterStats& stats,
-                     std::atomic<bool>& should_stop, int thread_id) {
+void writer_function(std::shared_ptr<ListType> list, WriterStats &stats,
+                     std::atomic<bool> &should_stop, int thread_id) {
   uint64_t counter = 0;
   std::string prefix = "Thread-" + std::to_string(thread_id) + "-Item-";
 
@@ -229,23 +230,24 @@ void writer_function(std::shared_ptr<ListType> list, WriterStats& stats,
     std::string item_id = std::to_string(counter++);
     std::string data1 = prefix + item_id;
     std::string data2 = "Data-" + item_id;
-    
+
     Payload payload(data1, data2);
-    
+
     // Measure prepend latency
     auto start = std::chrono::high_resolution_clock::now();
     list->prepend(std::move(payload));
     auto end = std::chrono::high_resolution_clock::now();
-    
-    double latency_ns = std::chrono::duration<double, std::nano>(end - start).count();
+
+    double latency_ns =
+        std::chrono::duration<double, std::nano>(end - start).count();
     stats.record_latency(latency_ns);
   }
 }
 
 // Run benchmark for a specific list implementation
 template <typename ListType>
-void run_benchmark(const BenchmarkConfig& config,
-                   const std::string& implementation_name) {
+void run_benchmark(const BenchmarkConfig &config,
+                   const std::string &implementation_name) {
   std::cout << "Running benchmark for " << implementation_name << std::endl;
   std::cout << "  Writer threads: " << config.writer_threads << std::endl;
   std::cout << "  Duration: " << config.duration_seconds << " seconds"
@@ -255,14 +257,14 @@ void run_benchmark(const BenchmarkConfig& config,
   std::cout << "  Max history: " << config.max_history << std::endl;
 
   // Create the list
-  auto list = std::make_shared<ListType>(config.memory_threshold, 
-                                         config.max_history);
+  auto list =
+      std::make_shared<ListType>(config.memory_threshold, config.max_history);
 
   // Create writer threads and stats
   std::vector<std::thread> writer_threads;
   std::vector<WriterStats> writer_stats;
   writer_stats.reserve(config.writer_threads);
-  
+
   std::atomic<bool> should_stop{false};
 
   for (int i = 0; i < config.writer_threads; ++i) {
@@ -274,28 +276,28 @@ void run_benchmark(const BenchmarkConfig& config,
   // Start writer threads
   for (int i = 0; i < config.writer_threads; ++i) {
     writer_threads.emplace_back(writer_function<ListType>, list,
-                               std::ref(writer_stats[i]),
-                               std::ref(should_stop), i);
+                                std::ref(writer_stats[i]),
+                                std::ref(should_stop), i);
   }
 
   // Sleep for the specified duration
-  std::this_thread::sleep_for(
-      std::chrono::seconds(config.duration_seconds));
+  std::this_thread::sleep_for(std::chrono::seconds(config.duration_seconds));
 
   // Signal threads to stop
   should_stop.store(true, std::memory_order_relaxed);
 
   // Wait for all threads to finish
-  for (auto& thread : writer_threads) {
+  for (auto &thread : writer_threads) {
     thread.join();
   }
 
   auto end_time = std::chrono::high_resolution_clock::now();
-  double duration_secs = std::chrono::duration<double>(end_time - start_time).count();
+  double duration_secs =
+      std::chrono::duration<double>(end_time - start_time).count();
 
   // Set duration and sort latencies for stats
   uint64_t total_writes = 0;
-  for (auto& stats : writer_stats) {
+  for (auto &stats : writer_stats) {
     stats.set_duration(duration_secs);
     stats.sort_latencies();
     total_writes += stats.get_total_writes();
@@ -310,13 +312,13 @@ void run_benchmark(const BenchmarkConfig& config,
             << (total_writes / duration_secs) << std::endl;
 
   // Print individual thread stats
-  for (const auto& stats : writer_stats) {
+  for (const auto &stats : writer_stats) {
     stats.print_stats();
   }
 
   // Calculate and print aggregate stats
   std::vector<double> all_latencies;
-  for (const auto& stats : writer_stats) {
+  for (const auto &stats : writer_stats) {
     // We need to get all latencies from each thread and combine them
     // This is a simplification - in a real implementation we would
     // merge the sorted latency vectors more efficiently
@@ -330,82 +332,95 @@ void run_benchmark(const BenchmarkConfig& config,
 
   double avg_latency = 0;
   if (!all_latencies.empty()) {
-    avg_latency = std::accumulate(all_latencies.begin(), all_latencies.end(), 0.0) / 
-                  all_latencies.size();
+    avg_latency =
+        std::accumulate(all_latencies.begin(), all_latencies.end(), 0.0) /
+        all_latencies.size();
   }
 
-  std::cout << "\nAggregate stats for " << implementation_name << ":" << std::endl;
+  std::cout << "\nAggregate stats for " << implementation_name << ":"
+            << std::endl;
   std::cout << "  Median latency: " << std::fixed << std::setprecision(2)
-            << (all_latencies.empty() ? 0.0 : 
-                all_latencies[all_latencies.size() / 2]) << " ns" << std::endl;
+            << (all_latencies.empty() ? 0.0
+                                      : all_latencies[all_latencies.size() / 2])
+            << " ns" << std::endl;
   std::cout << "  Average latency: " << std::fixed << std::setprecision(2)
             << avg_latency << " ns" << std::endl;
-  std::cout << "  90%ile latency: " << std::fixed << std::setprecision(2)
-            << (all_latencies.empty() ? 0.0 : 
-                all_latencies[static_cast<size_t>(0.9 * all_latencies.size())]) 
-            << " ns" << std::endl;
-  std::cout << "  99%ile latency: " << std::fixed << std::setprecision(2)
-            << (all_latencies.empty() ? 0.0 : 
-                all_latencies[static_cast<size_t>(0.99 * all_latencies.size())]) 
-            << " ns" << std::endl;
+  std::cout
+      << "  90%ile latency: " << std::fixed << std::setprecision(2)
+      << (all_latencies.empty()
+              ? 0.0
+              : all_latencies[static_cast<size_t>(0.9 * all_latencies.size())])
+      << " ns" << std::endl;
+  std::cout
+      << "  99%ile latency: " << std::fixed << std::setprecision(2)
+      << (all_latencies.empty()
+              ? 0.0
+              : all_latencies[static_cast<size_t>(0.99 * all_latencies.size())])
+      << " ns" << std::endl;
   std::cout << "  99.9%ile latency: " << std::fixed << std::setprecision(2)
-            << (all_latencies.empty() ? 0.0 : 
-                all_latencies[static_cast<size_t>(0.999 * all_latencies.size())]) 
+            << (all_latencies.empty() ? 0.0
+                                      : all_latencies[static_cast<size_t>(
+                                            0.999 * all_latencies.size())])
             << " ns" << std::endl;
 
   // Write CSV output if requested
   if (config.csv_output) {
-    std::ofstream csv_file(config.output_file, 
-                          std::ios::app | std::ios::out);
-    
+    std::ofstream csv_file(config.output_file, std::ios::app | std::ios::out);
+
     // Write header if file is empty
     csv_file.seekp(0, std::ios::end);
     if (csv_file.tellp() == 0) {
       csv_file << writer_stats[0].get_csv_header() << ",aggregate\n";
     }
-    
+
     // Write individual thread stats
-    for (const auto& stats : writer_stats) {
+    for (const auto &stats : writer_stats) {
       csv_file << stats.get_csv_row() << ",thread\n";
     }
-    
+
     // Write aggregate stats
     csv_file << implementation_name << ",aggregate," << total_writes << ","
-             << std::fixed << std::setprecision(2) 
-             << (total_writes / duration_secs) << ","
              << std::fixed << std::setprecision(2)
-             << (all_latencies.empty() ? 0.0 : 
-                 all_latencies[all_latencies.size() / 2]) << ","
-             << std::fixed << std::setprecision(2) << avg_latency << ","
+             << (total_writes / duration_secs) << "," << std::fixed
+             << std::setprecision(2)
+             << (all_latencies.empty()
+                     ? 0.0
+                     : all_latencies[all_latencies.size() / 2])
+             << "," << std::fixed << std::setprecision(2) << avg_latency << ","
              << std::fixed << std::setprecision(2)
-             << (all_latencies.empty() ? 0.0 : 
-                 all_latencies[static_cast<size_t>(0.9 * all_latencies.size())]) << ","
-             << std::fixed << std::setprecision(2)
-             << (all_latencies.empty() ? 0.0 : 
-                 all_latencies[static_cast<size_t>(0.99 * all_latencies.size())]) << ","
-             << std::fixed << std::setprecision(2)
-             << (all_latencies.empty() ? 0.0 : 
-                 all_latencies[static_cast<size_t>(0.999 * all_latencies.size())])
+             << (all_latencies.empty() ? 0.0
+                                       : all_latencies[static_cast<size_t>(
+                                             0.9 * all_latencies.size())])
+             << "," << std::fixed << std::setprecision(2)
+             << (all_latencies.empty() ? 0.0
+                                       : all_latencies[static_cast<size_t>(
+                                             0.99 * all_latencies.size())])
+             << "," << std::fixed << std::setprecision(2)
+             << (all_latencies.empty() ? 0.0
+                                       : all_latencies[static_cast<size_t>(
+                                             0.999 * all_latencies.size())])
              << ",aggregate\n";
   }
 }
 
-}  // namespace arangodb
+} // namespace arangodb
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   using namespace arangodb;
-  
+
   auto config = BenchmarkConfig::parse_args(argc, argv);
-  
+
   std::cout << "=== BoundedList vs BoundedList2 Benchmark ===" << std::endl;
-  
+
   // Run benchmark for BoundedList
   run_benchmark<BoundedList<Payload>>(config, "BoundedList");
-  
+
   std::cout << "\n\n";
-  
+  // malloc_stats_print(nullptr, nullptr, nullptr);
+
   // Run benchmark for BoundedList2
   run_benchmark<BoundedList2<Payload>>(config, "BoundedList2");
-  
+
+  // malloc_stats_print(nullptr, nullptr, nullptr);
   return 0;
-} 
+}

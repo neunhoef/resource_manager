@@ -12,6 +12,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerOptions)
 
+# Find jemalloc
+find_package(Jemalloc)
+if(JEMALLOC_FOUND)
+  message(STATUS "Found jemalloc: ${JEMALLOC_LIBRARIES}")
+else()
+  message(WARNING "jemalloc not found. Using system allocator.")
+endif()
+
 # Add include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 

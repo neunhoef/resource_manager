@@ -7,6 +7,7 @@
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <jemalloc/jemalloc.h>
 #include <mutex>
 #include <numeric>
 #include <shared_mutex>
@@ -15,33 +16,33 @@
 #include <vector>
 
 // Standard read-write lock based resource manager for comparison
-template <typename T>
-class RWLockResourceManager {
+template <typename T> class RWLockResourceManager {
 private:
   std::unique_ptr<T> resource;
   mutable std::shared_mutex mutex;
 
 public:
   explicit RWLockResourceManager(std::unique_ptr<T> initial_resource)
-    : resource(std::move(initial_resource)) {}
+      : resource(std::move(initial_resource)) {}
 
   ~RWLockResourceManager() = default;
 
   // Delete copy/move constructors and assignment operators
-  RWLockResourceManager(const RWLockResourceManager&) = delete;
-  RWLockResourceManager& operator=(const RWLockResourceManager&) = delete;
-  RWLockResourceManager(RWLockResourceManager&&) = delete;
-  RWLockResourceManager& operator=(RWLockResourceManager&&) = delete;
+  RWLockResourceManager(const RWLockResourceManager &) = delete;
+  RWLockResourceManager &operator=(const RWLockResourceManager &) = delete;
+  RWLockResourceManager(RWLockResourceManager &&) = delete;
+  RWLockResourceManager &operator=(RWLockResourceManager &&) = delete;
 
   // Reader API: Get access to the resource
   template <typename F>
-  auto read(F&& f) -> decltype(f(std::declval<const T&>())) {
+  auto read(F &&f) -> decltype(f(std::declval<const T &>())) {
     std::shared_lock<std::shared_mutex> lock(mutex);
     return f(*resource);
   }
 
   // Writer API: Update the resource
-  std::pair<std::unique_ptr<T>, uint64_t> update(std::unique_ptr<T> new_resource) {
+  std::pair<std::unique_ptr<T>, uint64_t>
+  update(std::unique_ptr<T> new_resource) {
     std::unique_lock<std::shared_mutex> lock(mutex);
     std::unique_ptr<T> old_resource = std::move(resource);
     resource = std::move(new_resource);
@@ -59,7 +60,7 @@ struct BenchmarkConfig {
   int updates_per_second = 100;
   bool csv_output = false;
   std::string output_file = "benchmark_results.csv";
-  bool run_both = true;  // Run both implementations by default
+  bool run_both = true; // Run both implementations by default
 
   static BenchmarkConfig parse_args(int argc, char *argv[]) {
     BenchmarkConfig config;
@@ -115,8 +116,8 @@ private:
   std::string implementation_name;
 
 public:
-  explicit ReaderStats(int id, const std::string& impl_name = "")
-    : thread_id(id), implementation_name(impl_name) {
+  explicit ReaderStats(int id, const std::string &impl_name = "")
+      : thread_id(id), implementation_name(impl_name) {
     // Pre-allocate space to avoid reallocations
     latencies.reserve(100000000);
   }
@@ -130,8 +131,10 @@ public:
   void set_duration(double secs) { duration_secs = secs; }
 
   int get_thread_id() const { return thread_id; }
-  
-  const std::string& get_implementation_name() const { return implementation_name; }
+
+  const std::string &get_implementation_name() const {
+    return implementation_name;
+  }
 
   uint64_t get_total_reads() const { return total_reads; }
 
@@ -158,13 +161,15 @@ public:
   }
 
   void sort_latencies() {
-    std::cout << "Sorting latencies for " << implementation_name << " thread " << thread_id << "..." << std::endl;
+    std::cout << "Sorting latencies for " << implementation_name << " thread "
+              << thread_id << "..." << std::endl;
     std::sort(latencies.begin(), latencies.end());
     std::cout << "Done." << std::endl;
   }
 
   void print_stats() const {
-    std::cout << implementation_name << " Thread " << thread_id << ":" << std::endl;
+    std::cout << implementation_name << " Thread " << thread_id << ":"
+              << std::endl;
     std::cout << "  Total reads: " << total_reads << std::endl;
     std::cout << "  Reads/sec: " << std::fixed << std::setprecision(2)
               << get_reads_per_second() << std::endl;
@@ -182,28 +187,29 @@ public:
 
   // For CSV output
   std::string get_csv_header() const {
-    return "implementation,thread_id,total_reads,reads_per_sec,median_latency_ns,avg_latency_"
+    return "implementation,thread_id,total_reads,reads_per_sec,median_latency_"
+           "ns,avg_latency_"
            "ns,"
            "p90_latency_ns,p99_latency_ns,p999_latency_ns";
   }
 
   std::string get_csv_row() const {
     std::stringstream ss;
-    ss << implementation_name << "," << thread_id << "," << total_reads << "," << std::fixed
-       << std::setprecision(2) << get_reads_per_second() << "," << std::fixed
-       << std::setprecision(2) << get_percentile(0.5) << "," << std::fixed
-       << std::setprecision(2) << get_average_latency() << "," << std::fixed
-       << std::setprecision(2) << get_percentile(0.9) << "," << std::fixed
-       << std::setprecision(2) << get_percentile(0.99) << "," << std::fixed
-       << std::setprecision(2) << get_percentile(0.999);
+    ss << implementation_name << "," << thread_id << "," << total_reads << ","
+       << std::fixed << std::setprecision(2) << get_reads_per_second() << ","
+       << std::fixed << std::setprecision(2) << get_percentile(0.5) << ","
+       << std::fixed << std::setprecision(2) << get_average_latency() << ","
+       << std::fixed << std::setprecision(2) << get_percentile(0.9) << ","
+       << std::fixed << std::setprecision(2) << get_percentile(0.99) << ","
+       << std::fixed << std::setprecision(2) << get_percentile(0.999);
     return ss.str();
   }
 };
 
 // Generic reader thread function template
-template<typename ManagerType>
-void reader_function(std::shared_ptr<ManagerType> manager,
-                     ReaderStats &stats, std::atomic<bool> &should_stop) {
+template <typename ManagerType>
+void reader_function(std::shared_ptr<ManagerType> manager, ReaderStats &stats,
+                     std::atomic<bool> &should_stop) {
   auto start_time = std::chrono::steady_clock::now();
 
   while (!should_stop.load(std::memory_order_relaxed)) {
@@ -229,7 +235,7 @@ void reader_function(std::shared_ptr<ManagerType> manager,
 }
 
 // Generic writer thread function template
-template<typename ManagerType>
+template <typename ManagerType>
 void writer_function(std::shared_ptr<ManagerType> manager,
                      int updates_per_second, std::atomic<bool> &should_stop,
                      std::atomic<uint64_t> &update_counter) {
@@ -264,12 +270,16 @@ void writer_function(std::shared_ptr<ManagerType> manager,
 }
 
 // Function to run a single benchmark
-template<typename ManagerType>
-void run_benchmark(const BenchmarkConfig& config, const std::string& implementation_name) {
-  std::cout << "\nRunning benchmark for " << implementation_name << ":" << std::endl;
+template <typename ManagerType>
+void run_benchmark(const BenchmarkConfig &config,
+                   const std::string &implementation_name) {
+  std::cout << "\nRunning benchmark for " << implementation_name << ":"
+            << std::endl;
   std::cout << "  Reader threads: " << config.reader_threads << std::endl;
-  std::cout << "  Duration: " << config.duration_seconds << " seconds" << std::endl;
-  std::cout << "  Writer updates: " << config.updates_per_second << " per second" << std::endl;
+  std::cout << "  Duration: " << config.duration_seconds << " seconds"
+            << std::endl;
+  std::cout << "  Writer updates: " << config.updates_per_second
+            << " per second" << std::endl;
 
   // Create a resource manager with initial string
   auto manager = std::make_shared<ManagerType>(
@@ -281,7 +291,8 @@ void run_benchmark(const BenchmarkConfig& config, const std::string& implementat
   // Create reader statistics objects
   std::vector<std::unique_ptr<ReaderStats>> all_stats;
   for (int i = 0; i < config.reader_threads; ++i) {
-    all_stats.emplace_back(std::make_unique<ReaderStats>(i, implementation_name));
+    all_stats.emplace_back(
+        std::make_unique<ReaderStats>(i, implementation_name));
   }
 
   // Create and start reader threads
@@ -295,8 +306,9 @@ void run_benchmark(const BenchmarkConfig& config, const std::string& implementat
   std::atomic<uint64_t> update_counter(0);
 
   // Create and start writer thread
-  std::thread writer_thread(writer_function<ManagerType>, manager, config.updates_per_second,
-                            std::ref(should_stop), std::ref(update_counter));
+  std::thread writer_thread(writer_function<ManagerType>, manager,
+                            config.updates_per_second, std::ref(should_stop),
+                            std::ref(update_counter));
 
   // Run benchmark for specified duration
   std::cout << "Benchmark running for " << config.duration_seconds
@@ -346,11 +358,12 @@ void run_benchmark(const BenchmarkConfig& config, const std::string& implementat
             << static_cast<double>(update_counter.load()) /
                    config.duration_seconds
             << std::endl;
-            
+
   // Return the stats for CSV output if needed
   if (config.csv_output) {
-    std::ofstream csv_file(config.output_file, 
-                          implementation_name == "RWLock" ? std::ios::app : std::ios::out);
+    std::ofstream csv_file(config.output_file, implementation_name == "RWLock"
+                                                   ? std::ios::app
+                                                   : std::ios::out);
 
     if (csv_file.is_open()) {
       // Write header only for the first implementation
@@ -364,11 +377,13 @@ void run_benchmark(const BenchmarkConfig& config, const std::string& implementat
       }
 
       // Write aggregate row
-      csv_file << implementation_name << ",aggregate," << total_reads << "," << std::fixed
-               << std::setprecision(2) << reads_per_second << ",,,,,";
+      csv_file << implementation_name << ",aggregate," << total_reads << ","
+               << std::fixed << std::setprecision(2) << reads_per_second
+               << ",,,,,";
       csv_file << std::endl;
 
-      std::cout << "CSV results for " << implementation_name << " written to " << config.output_file << std::endl;
+      std::cout << "CSV results for " << implementation_name << " written to "
+                << config.output_file << std::endl;
     } else {
       std::cerr << "Error: Could not open file for CSV output." << std::endl;
     }
@@ -380,20 +395,23 @@ int main(int argc, char *argv[]) {
   BenchmarkConfig config = BenchmarkConfig::parse_args(argc, argv);
 
   std::cout << "Starting benchmark comparison" << std::endl;
-  
+
   // Run the epoch-based ResourceManager benchmark
   run_benchmark<ResourceManager<std::string>>(config, "EpochBased");
-  
+
   // Run the RWLock-based ResourceManager benchmark if requested
   if (config.run_both) {
     run_benchmark<RWLockResourceManager<std::string>>(config, "RWLock");
-    
+
     // Print comparison summary
     std::cout << "\nComparison Summary:" << std::endl;
     std::cout << "===================" << std::endl;
-    std::cout << "See detailed results above for performance metrics." << std::endl;
-    std::cout << "The CSV output file contains data for both implementations for detailed analysis." << std::endl;
+    std::cout << "See detailed results above for performance metrics."
+              << std::endl;
+    std::cout << "The CSV output file contains data for both implementations "
+                 "for detailed analysis."
+              << std::endl;
   }
-
+  // malloc_stats_print(nullptr, nullptr, nullptr);
   return 0;
 }

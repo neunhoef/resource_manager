@@ -13,6 +13,13 @@ function(set_compiler_options target)
   # Link with pthread
   target_link_libraries(${target} PRIVATE pthread)
   
+  # Link with jemalloc if available
+  if(JEMALLOC_FOUND)
+    target_include_directories(${target} PRIVATE ${JEMALLOC_INCLUDE_DIRS})
+    target_link_libraries(${target} PRIVATE ${JEMALLOC_LIBRARIES})
+    target_compile_definitions(${target} PRIVATE USE_JEMALLOC=1)
+  endif()
+  
   # Debug build specific options
   target_compile_options(${target} PRIVATE $<$<CONFIG:Debug>:
     -g

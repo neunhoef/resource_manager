@@ -1,6 +1,10 @@
 #pragma once
 
 #include <atomic>
+#if defined(__x86_64__) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -38,6 +42,7 @@ private:
       std::mt19937 gen(rd());
       std::uniform_int_distribution<size_t> dist(0, EPOCH_SLOTS - 1);
       thread_slot_index = dist(gen);
+      std::cout << "Using slot " << thread_slot_index.value();
     }
     return *thread_slot_index;
   }
