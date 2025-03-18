@@ -145,7 +145,7 @@ public:
 
   template <typename F>
     requires std::is_invocable_v<F, T const &>
-  void forItems(F &&callback) const {
+  void forItems(F &&callback) {
     // Get snapshots under lock
     std::vector<std::shared_ptr<AtomicList<T>>> snapshots;
     {
