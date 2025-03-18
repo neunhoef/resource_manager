@@ -13,13 +13,24 @@
 #include <type_traits>
 #include <vector>
 
-// Alignment for cache line to prevent false sharing
-struct alignas(64) EpochSlot {
-  std::atomic<uint64_t> epoch{0};
-};
+void cpu_relax() {
+  // CPU hint for spin-waiting
+#if defined(__x86_64__) || defined(_M_X64)
+  _mm_pause(); // x86 pause instruction
+#elif defined(__arm__) || defined(__aarch64__)
+  __asm__ volatile("yield" ::: "memory"); // ARM yield instruction
+#else
+  std::this_thread::yield(); // Fallback for other architectures
+#endif
+}
 
 template <typename T> class ResourceManager {
 private:
+  // Alignment for cache line to prevent false sharing
+  struct alignas(64) EpochSlot {
+    std::atomic<uint64_t> epoch{0};
+  };
+
   // Resource management
   std::atomic<T *> current_resource;
   std::atomic<uint64_t> global_epoch{1}; // Start at 1, 0 means "not reading"
@@ -63,14 +74,7 @@ public:
         if (slot_epoch == 0 || slot_epoch > epoch) {
           break;
         }
-// CPU hint for spin-waiting
-#if defined(__x86_64__) || defined(_M_X64)
-        _mm_pause(); // x86 pause instruction
-#elif defined(__arm__) || defined(__aarch64__)
-        __asm__ volatile("yield" ::: "memory"); // ARM yield instruction
-#else
-        std::this_thread::yield(); // Fallback for other architectures
-#endif
+        cpu_relax();
       }
     }
   }

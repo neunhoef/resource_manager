@@ -304,17 +304,19 @@ void run_benchmark(const BenchmarkConfig &config,
   }
 
   // Print results
+  std::cout << "\nResults for " << implementation_name << ":\n" << std::endl;
+
+  // Print individual thread stats
+  for (const auto &stats : writer_stats) {
+    stats.print_stats();
+  }
+
   std::cout << "\nResults for " << implementation_name << ":" << std::endl;
   std::cout << "  Total duration: " << std::fixed << std::setprecision(2)
             << duration_secs << " seconds" << std::endl;
   std::cout << "  Total writes: " << total_writes << std::endl;
   std::cout << "  Writes/sec: " << std::fixed << std::setprecision(2)
             << (total_writes / duration_secs) << std::endl;
-
-  // Print individual thread stats
-  for (const auto &stats : writer_stats) {
-    stats.print_stats();
-  }
 
   // Calculate and print aggregate stats
   std::vector<double> all_latencies;
